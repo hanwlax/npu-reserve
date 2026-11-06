@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     name TEXT NOT NULL,
     password TEXT NOT NULL,
     password_ciphertext BLOB,
-    role TEXT NOT NULL CHECK(role IN ('admin','user'))
+    role TEXT NOT NULL CHECK(role IN ('admin','user')),
+    status TEXT NOT NULL DEFAULT 'approved' CHECK(status IN ('pending','approved','rejected')),
+    registered_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -96,6 +98,7 @@ INSERT OR IGNORE INTO metadata VALUES (1,0);
 
 MUTATIONS = {
     "create-account": ("create_account", "admin"),
+    "review-registrations": ("review_registrations", "admin"),
     "change-password": ("change_password", None),
     "reset-password": ("reset_password", "admin"),
     "add-machine": ("add_machine", "admin"),
@@ -151,6 +154,11 @@ def encode_password(password, *, minimum=8):
         raise Error(422, f"密码需要 {minimum}–128 个字符。")
     salt = secrets.token_bytes(16)
     return salt.hex() + ":" + password_hash(password, salt)
+
+
+def generated_password():
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
 def token_hash(token):
@@ -239,6 +247,11 @@ class Store:
             account_columns = {row["name"] for row in db.execute("PRAGMA table_info(accounts)")}
             if "password_ciphertext" not in account_columns:
                 db.execute("ALTER TABLE accounts ADD COLUMN password_ciphertext BLOB")
+            if "status" not in account_columns:
+                db.execute("ALTER TABLE accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'approved' "
+                           "CHECK(status IN ('pending','approved','rejected'))")
+            if "registered_at" not in account_columns:
+                db.execute("ALTER TABLE accounts ADD COLUMN registered_at INTEGER")
             self.cipher = self.load_password_cipher(db)
             for username in DEFAULT_ADMINS:
                 account = db.execute("SELECT id,role FROM accounts WHERE username=?", (username,)).fetchone()
@@ -246,7 +259,7 @@ class Store:
                     encoded = encode_password(username, minimum=1)
                     self.insert_account(db, {"username": username}, encoded, "admin")
                 elif account["role"] != "admin":
-                    db.execute("UPDATE accounts SET role='admin',password_ciphertext=NULL WHERE id=?", (account["id"],))
+                    db.execute("UPDATE accounts SET role='admin',status='approved',password_ciphertext=NULL WHERE id=?", (account["id"],))
                     db.execute("DELETE FROM sessions WHERE account_id=?", (account["id"],))
                 else:
                     continue
@@ -315,7 +328,7 @@ class Store:
             if actor["role"] != "admin":
                 raise Error(403, "没有查看用户密码的权限。")
             account = db.execute(
-                "SELECT password_ciphertext FROM accounts WHERE id=? AND role='user'", (integer(data, "id"),)
+                "SELECT password_ciphertext FROM accounts WHERE id=? AND role='user' AND status='approved'", (integer(data, "id"),)
             ).fetchone()
             if account is None:
                 raise Error(404, "普通用户不存在。")
@@ -346,6 +359,27 @@ class Store:
         )
         return cursor.lastrowid
 
+    @staticmethod
+    def registration_message(db, status):
+        names = [row[0] for row in db.execute("SELECT name FROM accounts WHERE role='admin' ORDER BY id")]
+        headline = "等待审核" if status == "pending" else "注册申请未通过"
+        return f"{headline}，请联系管理员 {' / '.join(names)}。"
+
+    def register(self, data):
+        generated = generated_password() if data.get("generate") is True else None
+        password = generated or data.get("password")
+        encoded = encode_password(password)
+        ciphertext = self.cipher.encrypt(password.encode())
+        with self.transaction(write=True) as db:
+            target = self.insert_account(db, data, encoded, "user")
+            db.execute("UPDATE accounts SET status='pending',registered_at=?,password_ciphertext=? WHERE id=?",
+                       (int(self.clock()), ciphertext, target))
+            self.bump(db)
+            result = {"message": self.registration_message(db, "pending")}
+            if generated is not None:
+                result["generatedPassword"] = generated
+            return result
+
     def login(self, data, previous=None):
         username, password = data.get("username"), data.get("password")
         if not isinstance(username, str) or not isinstance(password, str) or len(username) > 24 or len(password) > 128:
@@ -361,6 +395,9 @@ class Store:
             current = db.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone()
             if current is None or current["password"] != account["password"]:
                 raise Error(401, "账户或密码有误。")
+            if current["status"] != "approved":
+                raise Error(403, self.registration_message(db, current["status"]),
+                            f"registration_{current['status']}")
             if current["role"] == "user" and current["password_ciphertext"] is None:
                 db.execute("UPDATE accounts SET password_ciphertext=? WHERE id=?",
                            (self.cipher.encrypt(password.encode()), current["id"]))
@@ -379,7 +416,7 @@ class Store:
     def actor(db, token, now):
         row = db.execute(
             "SELECT a.id,a.username,a.name,a.role FROM sessions s JOIN accounts a ON a.id=s.account_id "
-            "WHERE s.token=? AND s.expires>?", (token_hash(token or ""), now),
+            "WHERE s.token=? AND s.expires>? AND a.status='approved'", (token_hash(token or ""), now),
         ).fetchone()
         if row is None:
             raise Error(401, "请先登录。", "login_required")
@@ -420,12 +457,18 @@ class Store:
             {"id": row["id"], "name": row["name"], "members": [m["id"] for m in machines if m["group_id"] == row["id"]]}
             for row in db.execute("SELECT id,name FROM groups ORDER BY id")
         ]
-        accounts, administrators = [], []
+        accounts, administrators, registrations = [], [], []
         if admin:
             administrators = [dict(row) for row in db.execute(
                 "SELECT id,name,username FROM accounts WHERE role='admin' ORDER BY id"
             )]
-            accounts = [dict(row) for row in db.execute("SELECT id,name,username FROM accounts WHERE role='user' ORDER BY id")]
+            accounts = [dict(row) for row in db.execute(
+                "SELECT id,name,username FROM accounts WHERE role='user' AND status='approved' ORDER BY id"
+            )]
+            registrations = [dict(row) for row in db.execute(
+                "SELECT id,name,username,registered_at FROM accounts WHERE role='user' AND status='pending' "
+                "ORDER BY registered_at,id"
+            )]
             group_grants = list(db.execute("SELECT account_id,group_id FROM group_grants ORDER BY group_id"))
             direct_grants = list(db.execute("SELECT account_id,machine_id FROM machine_grants ORDER BY machine_id"))
             for account in accounts:
@@ -457,7 +500,7 @@ class Store:
         return {
             "user": {k: actor[k] for k in ("id", "username", "name", "role")},
             "machines": machines, "groups": groups, "accounts": accounts, "administrators": administrators, "records": records,
-            "upcoming": upcoming, "window": start, "cutoff": (cutoff - start) // SLOT,
+            "registrations": registrations, "upcoming": upcoming, "window": start, "cutoff": (cutoff - start) // SLOT,
             "pastEnd": max(0, (cutoff - start) // SLOT), "revision": self.revision(db),
         }
 
@@ -473,8 +516,7 @@ class Store:
                 if role and actor["role"] != role:
                     raise Error(403, "没有执行此操作的权限。")
             if action != "change-password" and data.get("generate") is True:
-                alphabet = string.ascii_letters + string.digits
-                generated = "".join(secrets.choice(alphabet) for _ in range(8))
+                generated = generated_password()
             password = generated or data.get("password")
             data = {**data, "encoded": encode_password(password), "password_bytes": password.encode(),
                     "session_hash": token_hash(token)}
@@ -498,8 +540,26 @@ class Store:
                    (self.cipher.encrypt(data["password_bytes"]), target))
         return "账户已创建，可以为用户分配机器权限。"
 
+    def review_registrations(self, db, actor, data, now):
+        decision = data.get("decision")
+        if decision not in ("approve", "reject"):
+            raise Error(422, "请选择通过或拒绝。")
+        selection = data.get("ids")
+        if not isinstance(selection, list) or not selection or any(type(i) is not int or i <= 0 for i in selection):
+            raise Error(422, "请选择要审核的申请。")
+        selected = set(selection)
+        pending = {row[0] for row in db.execute("SELECT id FROM accounts WHERE role='user' AND status='pending'")}
+        if not selected <= pending:
+            raise Error(409, "申请状态已更新，请核对列表后重新选择。", "state_changed")
+        if decision == "approve":
+            db.executemany("UPDATE accounts SET status='approved' WHERE id=?", [(i,) for i in selected])
+            return f"已通过 {len(selected)} 条注册申请。"
+        db.executemany("UPDATE accounts SET status='rejected',password_ciphertext=NULL WHERE id=?",
+                       [(i,) for i in selected])
+        return f"已拒绝 {len(selected)} 条注册申请。"
+
     def set_password(self, db, target, data):
-        account = db.execute("SELECT role FROM accounts WHERE id=?", (target,)).fetchone()
+        account = db.execute("SELECT role FROM accounts WHERE id=? AND status='approved'", (target,)).fetchone()
         if account is None:
             raise Error(404, "账户不存在。")
         ciphertext = self.cipher.encrypt(data["password_bytes"]) if account["role"] == "user" else None
@@ -565,7 +625,7 @@ class Store:
         if db.execute("SELECT 1 FROM groups WHERE name=? AND id<>?", (name, group_id)).fetchone():
             raise Error(409, "组名已存在。")
         members = ids(data, "members", {row[0] for row in db.execute("SELECT id FROM machines WHERE retired=0")})
-        before = {row[0]: self.visible(db, row[0]) for row in db.execute("SELECT id FROM accounts WHERE role='user'")}
+        before = {row[0]: self.visible(db, row[0]) for row in db.execute("SELECT id FROM accounts WHERE role='user' AND status='approved'")}
         db.execute("UPDATE groups SET name=? WHERE id=?", (name, group_id))
         db.execute("UPDATE machines SET group_id=NULL WHERE group_id=?", (group_id,))
         db.executemany("UPDATE machines SET group_id=? WHERE id=?", [(group_id, m) for m in members])
@@ -574,7 +634,7 @@ class Store:
 
     def set_access(self, db, actor, data, now):
         account = integer(data, "id")
-        if not db.execute("SELECT 1 FROM accounts WHERE id=? AND role='user'", (account,)).fetchone():
+        if not db.execute("SELECT 1 FROM accounts WHERE id=? AND role='user' AND status='approved'", (account,)).fetchone():
             raise Error(404, "用户不存在。")
         groups = ids(data, "groups", {row[0] for row in db.execute("SELECT id FROM groups")})
         machines = ids(data, "direct", {row[0] for row in db.execute("SELECT id FROM machines WHERE retired=0")})

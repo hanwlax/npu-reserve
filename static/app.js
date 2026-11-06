@@ -7,6 +7,7 @@
   let groups = [];
   let accounts = [];
   let administrators = [];
+  let registrations = [];
   let records = [];
   let upcoming = [];
   let pastEnd = 0;
@@ -89,7 +90,7 @@
   const button = (action,label,style='') => '<button type="button" class="button '+style+'" data-action="'+action+'">'+label+'</button>';
 
   function chrome() {
-    identity.innerHTML = view === 'login' ? '' : '<span class="pill small">'+escape(user.name)+(view==='admin'?' · 管理员':'')+'</span>' +
+    identity.innerHTML = !user ? '' : '<span class="pill small">'+escape(user.name)+(view==='admin'?' · 管理员':'')+'</span>' +
       '<button class="link-button small" type="button" data-action="change-password">修改密码</button>'+
       '<button class="link-button small" type="button" data-action="logout">退出</button>';
   }
@@ -250,7 +251,7 @@
   }
 
   function adminNav() {
-    return '<nav class="nav" aria-label="管理菜单">'+[['access','账户与授权'],['pool','机器资源池'],['groups','机器分组'],['locks','时段锁定']].map(([key,label]) =>
+    return '<nav class="nav" aria-label="管理菜单">'+[['access','账户与授权'],['registrations','注册审核'],['pool','机器资源池'],['groups','机器分组'],['locks','时段锁定']].map(([key,label]) =>
       '<button type="button" data-section="'+key+'" aria-pressed="'+(section===key)+'">'+label+'</button>').join('')+'</nav>';
   }
 
@@ -260,7 +261,7 @@
 
   function access() {
     const account = accounts[accountIndex];
-    return '<div class="intro"><div><div class="eyebrow">资源管理</div><h1>账户与授权</h1><p class="quiet">用户私聊申请后，由管理员建号并分配机器权限。</p></div>'+
+    return '<div class="intro"><div><div class="eyebrow">资源管理</div><h1>账户与授权</h1><p class="quiet">给已开通的用户分配机器权限，也可手动创建账户。</p></div>'+
       button('new-account','＋ 创建账户','primary')+'</div>'+adminNav()+'<div aria-live="polite">'+noticeHTML()+'</div><div class="admin-grid">'+
       '<section class="panel"><h2>用户账户</h2><div class="listing">'+accounts.map((a,i)=>'<div class="list-row"><div><strong>'+escape(a.name)+'</strong>'+
       '<div class="quiet small">'+escape(a.username)+' · '+allowed(a).length+' 台机器</div></div>'+
@@ -274,6 +275,61 @@
       '<fieldset class="checks"><legend>单独分配</legend>'+activeMachines().map(i=>check('direct',i,machineLabel(i),account.direct.includes(i))).join('')+'</fieldset>'+
       '<p class="quiet small" id="npu-effective" aria-live="polite">'+escape(effective(account))+'</p>'+
       '<div data-review aria-live="polite">'+saveButton('保存权限')+'</div></form>' : '<section class="panel"><h2>暂无用户账户</h2><p class="quiet">创建账户后即可分配机器权限。</p></section>')+'</div>';
+  }
+
+  function registrationReview() {
+    const format = new Intl.DateTimeFormat('zh-CN', {
+      timeZone:'Asia/Shanghai', dateStyle:'medium', timeStyle:'short'
+    });
+    const rows = registrations.map(entry =>
+      '<div class="list-row"><label class="registration-row"><input type="checkbox" name="application" value="'+entry.id+'">'+
+      '<span><strong>'+escape(entry.name)+'</strong><br><span class="quiet small">工号 '+escape(entry.username)+
+      ' · '+format.format(entry.registered_at*1000)+'</span></span></label><div class="controls">'+
+      '<button type="button" class="button" data-review-id="'+entry.id+'" data-decision="approve">通过</button>'+
+      '<button type="button" class="button" data-review-id="'+entry.id+'" data-decision="reject">拒绝</button></div></div>'
+    ).join('');
+    return '<div class="intro"><div><div class="eyebrow">账户管理</div><h1>注册审核</h1>'+
+      '<p class="quiet">审核通过后，申请人可用自己的工号和密码登录。</p></div>'+
+      button('refresh-registrations','刷新列表')+'</div>'+adminNav()+
+      '<div aria-live="polite">'+noticeHTML()+'</div>'+
+      (registrations.length ?
+        '<form class="panel" id="npu-review"><h2>待审核 · '+registrations.length+' 条</h2>'+
+        '<div class="summary"><div class="controls"><label><input type="checkbox" data-select-all> 全选</label>'+
+        '<span class="quiet small" data-selected-count aria-live="polite">已选 0 条</span></div>'+
+        '<div class="controls"><button type="submit" class="button primary" value="approve" disabled>批量通过</button>'+
+        '<button type="submit" class="button danger" value="reject" disabled>批量拒绝</button></div></div>'+
+        '<div class="listing">'+rows+'</div></form>' :
+        '<section class="panel"><h2>暂无待审核申请</h2></section>');
+  }
+
+  function refreshRegistrations() {
+    return run(async () => {
+      applyState(await request('state'));
+      reset();
+      render();
+    });
+  }
+
+  function reviewApplications(ids, decision, form) {
+    if (!ids.length) return;
+    const commit = () => save('review-registrations',{ids,decision},form);
+    if (decision === 'reject') {
+      showConfirmation('拒绝注册申请？','已选 '+ids.length+' 条申请',
+        '<p class="quiet">这些申请人将看到审核未通过的提示。</p>','确认拒绝',commit);
+    } else {
+      commit();
+    }
+  }
+
+  function updateReviewSelection(form, target) {
+    const entries = [...form.querySelectorAll('[name="application"]')];
+    const all = form.querySelector('[data-select-all]');
+    if (target === all) for (const input of entries) input.checked = all.checked;
+    const count = entries.filter(input => input.checked).length;
+    all.checked = count === entries.length;
+    all.indeterminate = count > 0 && count < entries.length;
+    form.querySelector('[data-selected-count]').textContent = '已选 '+count+' 条';
+    for (const button of form.querySelectorAll('button[type="submit"]')) button.disabled = count === 0;
   }
 
   function check(name,value,label,checked) {
@@ -371,16 +427,42 @@
   }
 
   function login() {
-    return '<form class="panel login" id="npu-login"><h1>登录</h1><p class="quiet">没有账户时，请私聊管理员申请账户与机器权限。</p>'+
+    return '<form class="panel login" id="npu-login"><h1>登录</h1>'+
       '<div data-login-notice aria-live="polite">'+noticeHTML()+'</div><label class="field">账户<input name="username" required maxlength="24" autocomplete="username"></label>'+
       '<label class="field">密码<input name="password" type="password" required maxlength="128" autocomplete="current-password"></label>'+
-      '<button class="button primary" type="submit">登录</button></form>';
+      saveButton('登录')+'<div class="controls login-footer"><span class="quiet small">还没有账户？</span>'+
+      '<button class="link-button small" type="button" data-action="show-registration">申请注册</button></div></form>';
+  }
+
+  function registration() {
+    return '<form class="panel login" id="npu-registration"><h1>申请注册</h1>'+
+      '<p class="quiet">提交后，任一管理员通过审核即可登录。</p>'+
+      '<div class="create-notice" aria-live="polite">'+noticeHTML()+'</div>'+
+      '<label class="field">用户名<input name="username" required maxlength="24" pattern="[a-zA-Z0-9_\\x2d]+" '+
+      'autocomplete="username" placeholder="请输入工号"></label>'+
+      '<label class="field">显示名（选填）<input name="name" maxlength="24" placeholder="同登录账户"></label>'+
+      passwordFields('密码',true,false)+
+      '<div class="controls">'+saveButton('提交申请')+button('back-to-login','返回登录')+'</div></form>';
+  }
+
+  function registrationStatus() {
+    return '<section class="panel login"><h1>注册申请</h1><div aria-live="polite">'+noticeHTML()+'</div>'+
+      '<div class="controls">'+button('back-to-login','返回登录')+'</div></section>';
+  }
+
+  function showRegistrationStatus(message, rejected = false) {
+    view = 'registration-status';
+    say(message,rejected);
+    render();
   }
 
   function render() {
     pendingEdit = null;
     chrome();
-    workspace.innerHTML = view==='login' ? login() : view==='user' || section==='locks' ? schedule() : section==='access' ? access() : section==='pool' ? resourcePool() : groupPage();
+    const publicPages = {login,registration,'registration-status':registrationStatus};
+    const adminPages = {access,registrations:registrationReview,pool:resourcePool,groups:groupPage,locks:schedule};
+    const page = publicPages[view] || (view==='user' ? schedule : adminPages[section]);
+    workspace.innerHTML = page();
   }
 
   function patch({board = true, form = true} = {}) {
@@ -418,11 +500,11 @@
     releaseEditor = null;
   }
 
-  function passwordFields(label, canGenerate) {
-    return (canGenerate?'<label><input type="checkbox" name="generate" checked> 自动生成密码</label>':'')+
-      '<label class="field" '+(canGenerate?'hidden':'')+'>'+label+
+  function passwordFields(label, canGenerate, auto = canGenerate) {
+    return (canGenerate?'<label class="password-option"><input type="checkbox" name="generate" '+(auto?'checked':'')+'> 自动生成密码</label>':'')+
+      '<label class="field" '+(auto?'hidden':'')+'>'+label+
       '<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" '+
-      (canGenerate?'disabled':'required')+'></label>';
+      (auto?'disabled':'required')+'></label>';
   }
 
   function passwordPayload(data) {
@@ -475,6 +557,7 @@
       section = data.section;
       reset();
       render();
+      if (section==='registrations') refreshRegistrations();
       return;
     }
     if (data.mode) {
@@ -510,11 +593,18 @@
       if (target) showPasswordForm(target);
       return;
     }
+    if (data.reviewId !== undefined && view==='admin') {
+      reviewApplications([Number(data.reviewId)],data.decision);
+      return;
+    }
     if (data.release !== undefined) {
       beginRelease(ownedBookings(user).find(r=>r.id===Number(data.release)));
       return;
     }
     switch (data.action) {
+      case 'show-registration': reset(); view='registration'; render(); break;
+      case 'back-to-login': signedOut(); break;
+      case 'refresh-registrations': refreshRegistrations(); break;
       case 'cancel-release': reset(); patch(); break;
       case 'cancel-edit': clearReview(); break;
       case 'confirm-edit': pendingEdit?.commit(); break;
@@ -550,7 +640,8 @@
 
   root.addEventListener('change', event => {
     const form = event.target.form;
-    if (event.target.name==='generate' && (form?.id==='npu-create' || form?.id==='npu-password')) {
+    if (form?.id==='npu-review') updateReviewSelection(form,event.target);
+    if (event.target.name==='generate' && ['npu-create','npu-password','npu-registration'].includes(form?.id)) {
       const input = form.elements.password;
       input.disabled = event.target.checked;
       input.required = !event.target.checked;
@@ -585,7 +676,7 @@
 
   root.addEventListener('input', event => {
     if (event.target.form?.id === 'npu-group') clearReview();
-    if (event.target.form?.id==='npu-create' && event.target.name==='username') {
+    if (['npu-create','npu-registration'].includes(event.target.form?.id) && event.target.name==='username') {
       event.target.form.elements.name.placeholder = event.target.value.trim() || '同登录账户';
     }
   });
@@ -668,7 +759,7 @@
   function applyState(state) {
     const account = accounts[accountIndex]?.id;
     const group = groups[groupIndex]?.id;
-    ({user,groups,accounts,administrators = [],records,upcoming,pastEnd,cutoff,revision,window:windowStart} = state);
+    ({user,groups,accounts,administrators = [],registrations = [],records,upcoming,pastEnd,cutoff,revision,window:windowStart} = state);
     machines = Object.fromEntries(state.machines.map(machine => [machine.id,machine]));
     accountIndex = Math.max(0,accounts.findIndex(item => item.id===account));
     groupIndex = Math.max(0,groups.findIndex(item => item.id===group));
@@ -698,7 +789,9 @@
     try {
       await action();
     } catch (error) {
-      if (error.code==='login_required') {
+      if (['registration_pending','registration_rejected'].includes(error.code)) {
+        showRegistrationStatus(error.message,error.code==='registration_rejected');
+      } else if (error.code==='login_required') {
         signedOut('会话已过期，请重新登录。');
       } else if (['occupied','state_changed'].includes(error.code)) {
         try {
@@ -755,6 +848,16 @@
         reset();
         render();
       },form);
+    } else if (form.id==='npu-registration') {
+      run(async () => {
+        const {message,generatedPassword} = await request('register',{
+          ...passwordPayload(data),username:data.get('username'),name:data.get('name')
+        });
+        showRegistrationStatus(message);
+        if (generatedPassword) showPasswordValue('自动生成的密码','请保存密码，审核通过后用它登录。',generatedPassword);
+      },form);
+    } else if (form.id==='npu-review') {
+      if (event.submitter) reviewApplications(data.getAll('application').map(Number),event.submitter.value,form);
     } else if (form.id==='npu-password') {
       const id = Number(form.dataset.target);
       const payload = passwordPayload(data);

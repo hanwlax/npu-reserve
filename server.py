@@ -59,7 +59,7 @@ class Server(ThreadingHTTPServer):
         finally:
             self.workers.release()
 
-    def limit_login(self, peer):
+    def limit_auth(self, peer):
         now = time.monotonic()
         with self.login_lock:
             for address, attempts in list(self.login_attempts.items()):
@@ -69,7 +69,7 @@ class Server(ThreadingHTTPServer):
                     del self.login_attempts[address]
             attempts = self.login_attempts[peer]
             if len(attempts) >= 60:
-                raise Error(429, "登录尝试过多，请稍后再试。")
+                raise Error(429, "登录或注册尝试过多，请稍后再试。")
             attempts.append(now)
 
 
@@ -164,10 +164,15 @@ class Handler(BaseHTTPRequestHandler):
             token = self.session()
             store = self.server.store
             if action == "login":
-                self.server.limit_login(self.client_address[0])
+                self.server.limit_auth(self.client_address[0])
                 with self.server.password_workers:
                     session, state = store.login(data, token)
                 self.json_response(200, state, self.cookie_header(session, SESSION_SECONDS))
+            elif action == "register":
+                self.server.limit_auth(self.client_address[0])
+                with self.server.password_workers:
+                    result = store.register(data)
+                self.json_response(201, result)
             elif action == "logout":
                 store.logout(token)
                 self.json_response(200, {}, self.cookie_header("", 0))

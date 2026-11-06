@@ -11,11 +11,9 @@ python3 -m pip install -r requirements.txt
 python3 server.py serve
 ```
 
-打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，用内置管理员账户登录，先在「机器资源池」添加机器，再创建用户并分配机器或机器组。同网段的设备用 `http://<服务器局域网 IP>:8080` 访问。用户向管理员私聊申请账户，管理员单独告知登录信息。服务默认使用 `data/reservations.sqlite3`，前台按 Ctrl+C 停止。
+打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，用内置管理员账户登录，先在「机器资源池」添加机器，再为用户分配机器或机器组。同网段的设备用 `http://<服务器局域网 IP>:8080` 访问。服务默认使用 `data/reservations.sqlite3`，前台按 Ctrl+C 停止。
 
 数据库初始化会添加两个管理员 `zhaoming` 和 `leixuewei`，初始密码分别与登录账户相同。升级时，已有的同名普通账户会提升为管理员，保留现有密码，并在重新登录后使用管理员权限。首次使用请更换初始密码，再开放站点访问。
-
-登录后可在右上角修改自己的密码。管理员可在「账户与授权」重置普通用户或其他管理员的密码，建号和重置都可自动生成密码。手动设置密码至少 8 个字符，自动生成 8 位字母数字密码。管理员可随时在普通用户旁点击「查看密码」。旧账户的密码在用户重新登录、主动改密或管理员重置后可查看。改密无需旧密码，当前改密者的会话会保留，目标账户的其他会话会失效。如需额外的管理员，可运行 `python3 server.py create-admin --username admin` 交互式设置初始密码。对于 systemd 部署，请以 `npu-reserve` 系统账户执行，并用 `--db /var/lib/npu-reserve/reservations.sqlite3` 指向服务数据库。
 
 默认监听 `0.0.0.0:8080`。可用 `serve --host`、`--port` 或环境变量 `NPU_RESERVE_HOST`、`NPU_RESERVE_PORT` 调整。若在同一台主机上使用 HTTPS 反向代理，将监听地址设为 `127.0.0.1`，并设置 `NPU_RESERVE_SECURE_COOKIE=1`。站点部署在域名根路径。
 
@@ -28,6 +26,24 @@ Linux 密钥文件需要支持 `0600` 权限。在 WSL 的 Windows 挂载目录�
 ```bash
 NPU_RESERVE_PASSWORD_KEY_FILE="$HOME/.local/state/npu-reserve/password.key" python3 server.py serve
 ```
+
+## 用户操作
+
+1. **申请注册。** 在登录页点击「申请注册」，用工号作为用户名。显示名可留空，默认与用户名相同。密码可自行设置，至少 8 个字符，也可勾选「自动生成密码」，并保存页面显示的 8 位字母数字密码。
+2. **等待审核。** 待审核页面会显示可以联系的管理员。任一管理员通过申请后，返回登录页即可登录。申请被拒绝时，登录会提示联系管理员。已有账户和管理员手动创建的账户可直接登录。
+3. **预约机时。** 在「机器预约」中沿同一台机器的一行点击或拖选空闲时段，核对起止时间后点击「提交预约」。如果列表为空，请联系管理员分配机器。悬停已预约或锁定的色块可查看时段和操作人显示名。
+4. **释放机时。** 在「我的预约」点「释放机时」，也可直接点击自己的预约色块。选择释放整段或仅释放一段，核对将释放和保留的时段后确认。
+5. **修改密码。** 登录后点击右上角「修改密码」并设置新密码。当前会话会保留，其他会话会退出。
+
+## 管理员操作
+
+1. **审核注册。** 打开「注册审核」，在单条申请旁点「通过」或「拒绝」，也可勾选多条或全选后批量处理。审核通过会开通登录权限，机器权限在「账户与授权」中单独分配。
+2. **维护机器。** 在「机器资源池」新增机器，名称和 IP 地址必填，配置可选。在「机器分组」新建分组并编辑成员。删除机器时，确认框会提示将受影响的预约和锁定。
+3. **分配权限。** 在「账户与授权」选择用户并编辑权限。可授予整个机器组，也可单独勾选机器。撤权导致某台机器对用户不可见时，确认保存后会自动释放该用户在这台机器上的剩余预约。
+4. **锁定或解锁。** 在「时段锁定」选择「锁定」或「解锁」，拖选范围并提交。锁定与已有预约重叠时，确认框会列出将释放和保留的时段。解锁只解除选区内的锁定，解锁后机时重新开放预约。
+5. **维护账户。** 在「账户与授权」可手动创建账户、查看普通用户当前密码，或重置普通用户及其他管理员的密码。建号和重置都支持自动生成密码。旧账户的密码在用户重新登录、主动改密或管理员重置后可查看。重置他人密码后，目标账户的会话会退出。
+
+如需额外的管理员，可运行 `python3 server.py create-admin --username admin`。使用 systemd 部署时，以 `npu-reserve` 系统账户执行 `/usr/bin/python3 /opt/npu-reserve/server.py --db /var/lib/npu-reserve/reservations.sqlite3 create-admin --username admin`。
 
 ## systemd 部署
 
@@ -67,6 +83,20 @@ curl -fsS -o /dev/null http://127.0.0.1:18080/
 systemctl status npu-reserve
 journalctl -u npu-reserve -f
 ```
+
+### 更新已部署的服务
+
+在部署服务器上的源码克隆目录执行：
+
+```bash
+git pull --ff-only origin main
+sudo install -m 0644 server.py reservation.py /opt/npu-reserve/
+sudo install -m 0644 static/index.html static/app.css static/app.js /opt/npu-reserve/static/
+sudo systemctl restart npu-reserve.service
+sudo systemctl status npu-reserve.service --no-pager
+```
+
+如果 unit 有改动，在重启前重新安装 `deploy/npu-reserve.service` 并执行 `sudo systemctl daemon-reload`。内网服务器无法直接访问 GitHub 时，可在联网机器用 `git archive` 打包已提交的源码，传入内网解压后执行安装和重启步骤。数据库与密钥仍位于 `/var/lib/npu-reserve`，监听配置仍读取 `/etc/npu-reserve.env`。
 
 ## 预约规则
 

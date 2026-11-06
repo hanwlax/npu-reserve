@@ -11,7 +11,7 @@ from http.client import HTTPConnection
 from pathlib import Path
 from threading import Barrier, Thread
 
-from reservation import BEIJING, DPAPI_KEY_PREFIX, SCHEMA, SLOT, Error, Store
+from reservation import BEIJING, DPAPI_KEY_PREFIX, SCHEMA, SLOT, Error, Store, encode_password
 from server import Server
 
 PASSWORD = "test-only-password"
@@ -269,7 +269,14 @@ class ReservationTests(Fixture):
         legacy_path = self.path.with_name("legacy.sqlite3")
         with closing(sqlite3.connect(legacy_path)) as db, db:
             legacy_schema = SCHEMA.replace("    operator_id INTEGER REFERENCES accounts(id),\n", "")
-            db.executescript(legacy_schema.replace("    password_ciphertext BLOB,\n", ""))
+            legacy_schema = legacy_schema.replace("    password_ciphertext BLOB,\n", "")
+            legacy_schema = legacy_schema.replace(
+                ",\n    status TEXT NOT NULL DEFAULT 'approved' CHECK(status IN ('pending','approved','rejected')),\n    registered_at INTEGER",
+                "",
+            )
+            db.executescript(legacy_schema)
+            db.execute("INSERT INTO accounts(username,name,password,role) VALUES (?,?,?,'user')",
+                       ("legacy-user", "旧用户", encode_password(PASSWORD)))
             db.execute("INSERT INTO machines(id,name,ip,spec) VALUES (1,'legacy','192.0.2.123','')")
             db.execute("INSERT INTO intervals(machine_id,start,end,kind) VALUES (1,?,?,'locked')",
                        (self.now, self.now + SLOT))
@@ -279,6 +286,81 @@ class ReservationTests(Fixture):
         _, state = migrated.login({"username": "legacy-admin", "password": PASSWORD})
         self.assertEqual(len(state["records"]), 1)
         self.assertIsNone(state["records"][0]["operator"])
+        _, legacy_user = migrated.login({"username": "legacy-user", "password": PASSWORD})
+        self.assertEqual(legacy_user["user"]["role"], "user")
+
+    def test_registration_waits_for_any_admin_approval(self):
+        result = self.store.register({"username": "e000001", "generate": True, "role": "admin"})
+        password = result["generatedPassword"]
+        self.assertRegex(password, r"^[A-Za-z0-9]{8}$")
+        self.assertIn("等待审核", result["message"])
+        self.assertIn("zhaoming / leixuewei", result["message"])
+        credentials = {"username": "e000001", "password": password}
+        with self.assertRaises(Error) as pending:
+            self.store.login(credentials)
+        self.assertEqual(pending.exception.code, "registration_pending")
+        with self.assertRaises(Error) as wrong:
+            self.store.login({**credentials, "password": "wrong-password"})
+        self.assertEqual(wrong.exception.status, 401)
+        state = self.store.state(self.admin)
+        self.assertNotIn("e000001", {a["username"] for a in state["accounts"]})
+        registration, = state["registrations"]
+        self.assertNotIn("password", registration)
+        self.assertEqual(self.store.state(self.alice)["registrations"], [])
+        selection = {"decision": "approve", "ids": [registration["id"]]}
+        with self.assertRaises(Error) as forbidden:
+            self.store.mutate(self.alice, "review-registrations", selection)
+        self.assertEqual(forbidden.exception.status, 403)
+        second, _ = self.store.login({"username": "leixuewei", "password": "leixuewei"})
+        self.store.mutate(second, "review-registrations", selection)
+        _, approved = self.store.login(credentials)
+        self.assertEqual(approved["user"]["role"], "user")
+        self.assertEqual(approved["user"]["name"], "e000001")
+        self.assertEqual(approved["machines"], [])
+        self.assertEqual(self.store.view_password(second, {"id": registration["id"]}), {"password": password})
+
+    def test_bulk_review_is_atomic_and_rejection_blocks_login(self):
+        for n in range(4):
+            self.store.register({"username": f"employee-{n}", "name": f"申请人{n}", "password": PASSWORD})
+        selections = [a["id"] for a in self.store.state(self.admin)["registrations"]]
+        approved = self.admin_action("review-registrations", decision="approve", ids=selections[:2])
+        self.assertEqual(len(approved["registrations"]), 2)
+        with self.assertRaises(Error) as stale:
+            self.admin_action("review-registrations", decision="reject", ids=selections[1:])
+        self.assertEqual(stale.exception.code, "state_changed")
+        self.assertEqual([a["id"] for a in self.store.state(self.admin)["registrations"]], selections[2:])
+        rejected = self.admin_action("review-registrations", decision="reject", ids=selections[2:])
+        self.assertEqual(rejected["registrations"], [])
+        self.login("employee-1")
+        with self.assertRaises(Error) as denied:
+            self.login("employee-2")
+        self.assertEqual(denied.exception.code, "registration_rejected")
+        self.assertIn("请联系管理员", str(denied.exception))
+
+    def test_concurrent_review_preserves_first_decision(self):
+        self.store.register({"username": "same-review", "password": PASSWORD})
+        target, = self.store.state(self.admin)["registrations"]
+        second, _ = self.store.login({"username": "zhaoming", "password": "zhaoming"})
+        barrier = Barrier(2)
+
+        def review(item):
+            token, decision = item
+            barrier.wait(timeout=5)
+            try:
+                self.store.mutate(token, "review-registrations", {"decision": decision, "ids": [target["id"]]})
+                return decision
+            except Error as error:
+                return error.code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(review, [(self.admin, "approve"), (second, "reject")]))
+        self.assertEqual(outcomes.count("state_changed"), 1)
+        if "approve" in outcomes:
+            self.login("same-review")
+        else:
+            with self.assertRaises(Error) as rejected:
+                self.login("same-review")
+            self.assertEqual(rejected.exception.code, "registration_rejected")
 
     def test_database_enforces_nonoverlap(self):
         self.book(self.alice, 2, 4)
@@ -348,3 +430,16 @@ class HTTPTests(Fixture):
         self.assertEqual(json.loads(body), {"password": PASSWORD})
         self.assertEqual(request("/api/logout", {}, cookies[0])[0], 200)
         self.assertEqual(request("/api/state", cookie=cookies[0])[0], 401)
+        credentials = {"username": "e-http", "password": PASSWORD}
+        self.assertEqual(request("/api/register", credentials, marker=False)[0], 403)
+        status, registration_cookie, _ = request("/api/register", credentials)
+        self.assertEqual(status, 201)
+        self.assertIsNone(registration_cookie)
+        status, pending_cookie, body = request("/api/login", credentials)
+        self.assertEqual(status, 403)
+        self.assertIsNone(pending_cookie)
+        self.assertEqual(json.loads(body)["error"], "registration_pending")
+        admin_cookie = cookie.split(";", 1)[0]
+        queue = json.loads(request("/api/state", cookie=admin_cookie)[2])["registrations"]
+        self.assertEqual(request("/api/review-registrations", {"decision": "approve", "ids": [queue[0]["id"]]}, admin_cookie)[0], 200)
+        self.assertEqual(request("/api/login", credentials)[0], 200)

@@ -104,6 +104,7 @@ body {margin:0;background:light-dark(#f4f6fa,#111621)}
 #npu-reserve .admin-grid {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:13px;align-items:start}
 #npu-reserve .listing {display:grid;gap:8px}
 #npu-reserve .list-row {display:flex;justify-content:space-between;align-items:center;gap:7px;border-top:1px solid var(--line);padding-top:8px}
+#npu-reserve .registration-row {display:flex;gap:8px;align-items:center;min-width:0;overflow-wrap:anywhere}
 #npu-reserve .list-row > div {min-width:0;overflow-wrap:anywhere}
 #npu-reserve .checks {border:0;padding:0;margin:0;min-width:0;display:grid;gap:5px}
 #npu-reserve .release-modes {display:flex;flex-wrap:wrap;gap:7px 17px}
@@ -117,7 +118,10 @@ body {margin:0;background:light-dark(#f4f6fa,#111621)}
 #npu-reserve .dialog-content ul {margin:0;padding-left:22px}
 #npu-reserve .dialog-content .controls {justify-content:flex-end}
 #npu-reserve .login {width:min(100%,365px);margin:20px auto}
-#npu-reserve .login input {width:100%}
+#npu-reserve .login .field input {width:100%}
+#npu-reserve .login-footer {justify-content:center;align-items:center}
+#npu-reserve .password-option {display:flex;align-items:center;gap:6px;justify-self:start}
+#npu-reserve .password-option input {margin:0}
 @media(max-width:680px) {
   #npu-reserve {--rowhead:140px;padding:0}
   #npu-reserve :is(.workspace,.topbar) {padding:13px}
