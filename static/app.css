@@ -1,0 +1,125 @@
+html {color-scheme:light dark}
+body {margin:0;background:light-dark(#f4f6fa,#111621)}
+#npu-reserve {
+  color-scheme: light dark;
+  box-sizing:border-box;
+  width:min(100%,1360px);
+  margin:0 auto;
+  padding:18px;
+  --canvas:light-dark(#f4f6fa,#111621);
+  --surface:light-dark(#fff,#181f2d);
+  --subtle:light-dark(#f8faff,#1c2535);
+  --ink:light-dark(#182338,#edf3ff);
+  --muted:light-dark(#56647a,#aab9d2);
+  --line:light-dark(#dce4ef,#354158);
+  --accent:light-dark(#214fca,#9bb6ff);
+  --action:light-dark(#234fca,#3b65d8);
+  --selection:light-dark(#e5edff,#293e68);
+  --booked:light-dark(#eee7fa,#3f3157);
+  --booked-ink:light-dark(#5c397c,#ecd9ff);
+  --locked:light-dark(#f7e8d2,#4b3828);
+  --locked-ink:light-dark(#784909,#ffe0ae);
+  --stripe:light-dark(#ecd5b3,#5a4431);
+  --mine:light-dark(#d9f0e6,#23483d);
+  --mine-ink:light-dark(#205d45,#b5f1d7);
+  --past:light-dark(#eef1f5,#212837);
+  --danger:light-dark(#932b39,#ffb3bd);
+  --danger-bg:light-dark(#fff0f1,#3c252e);
+  --rowhead:174px;
+  font: 14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:var(--ink);
+}
+#npu-reserve * {box-sizing:border-box}
+#npu-reserve [hidden] {display:none!important}
+#npu-reserve :is(h1,h2,p) {margin:0;color:inherit}
+#npu-reserve h1 {font-size:27px;line-height:1.22;letter-spacing:-.035em;font-weight:680}
+#npu-reserve h2 {font-size:16px;font-weight:650}
+#npu-reserve button,#npu-reserve input,#npu-reserve select {font:inherit}
+#npu-reserve button {cursor:pointer}
+#npu-reserve :focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+#npu-reserve .quiet {color:var(--muted)}
+#npu-reserve .small {font-size:12px}
+#npu-reserve .nav button {border:1px solid transparent;background:transparent;color:var(--muted);border-radius:6px;padding:6px 9px}
+#npu-reserve .nav button[aria-pressed=true] {border-color:var(--line);background:var(--selection);color:var(--accent);font-weight:620}
+#npu-reserve .app {background:var(--canvas);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#npu-reserve .topbar {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:11px 22px;background:var(--surface);border-bottom:1px solid var(--line)}
+#npu-reserve .brand,#npu-reserve .identity {display:flex;align-items:center;gap:9px}
+#npu-reserve .brand {font-weight:680;letter-spacing:.015em}
+#npu-reserve .brand-mark {width:28px;height:28px;display:grid;place-items:center;background:var(--action);color:#fff;border-radius:7px}
+#npu-reserve .brand-mark svg {width:15px;height:15px}
+#npu-reserve .pill {display:inline-block;padding:2px 7px;background:var(--subtle);border:1px solid var(--line);border-radius:5px;white-space:nowrap}
+#npu-reserve .workspace {display:grid;gap:15px;padding:20px 22px}
+#npu-reserve .intro {display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px}
+#npu-reserve .intro p {margin-top:6px}
+#npu-reserve .eyebrow {font-size:12px;color:var(--accent);font-weight:650;margin-bottom:4px}
+#npu-reserve .legend {display:flex;align-items:center;flex-wrap:wrap;gap:8px 13px;color:var(--muted);font-size:12px}
+#npu-reserve .legend span {display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+#npu-reserve .swatch {width:12px;height:12px;border:1px solid var(--line);border-radius:3px;background:var(--surface)}
+#npu-reserve :is(.swatch,.block).booked {background:var(--booked);color:var(--booked-ink)}
+#npu-reserve :is(.swatch,.block).mine {background:var(--mine);color:var(--mine-ink)}
+#npu-reserve :is(.swatch,.block).locked {background:repeating-linear-gradient(135deg,var(--locked) 0 5px,var(--stripe) 5px 7px);color:var(--locked-ink)}
+#npu-reserve :is(.swatch,.block).past {background:var(--past);color:var(--muted)}
+#npu-reserve :is(.swatch,.block).draft {background:var(--selection);color:var(--accent);border:1px solid var(--accent)}
+#npu-reserve .board {background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:auto}
+#npu-reserve .board-grid {min-width:670px}
+#npu-reserve .board-row {display:grid;grid-template-columns:var(--rowhead) minmax(0,1fr);border-bottom:1px solid var(--line)}
+#npu-reserve .board-row:last-child {border-bottom:0}
+#npu-reserve .machine {position:sticky;left:0;z-index:2;background:var(--surface);border-right:1px solid var(--line);display:grid;align-content:center;padding:5px 11px;min-width:0}
+#npu-reserve .machine button {color:var(--ink);background:none;border:0;text-align:left;padding:0;font-weight:650;width:max-content;max-width:100%;overflow-wrap:anywhere}
+#npu-reserve .machine button:hover {color:var(--accent);text-decoration:underline}
+#npu-reserve .machine .quiet {overflow-wrap:anywhere}
+#npu-reserve .axis {position:relative;min-height:47px;background:var(--subtle);font-variant-numeric:tabular-nums}
+#npu-reserve .axis span {position:absolute;white-space:nowrap}
+#npu-reserve .axis .day {top:4px;left:7px;color:var(--muted);font-size:11px}
+#npu-reserve .axis .day.next {left:calc(200% / 3 + 7px);color:var(--accent)}
+#npu-reserve .axis .tick {bottom:5px;font-size:11px;transform:translateX(-50%);color:var(--muted)}
+#npu-reserve .axis .first {left:5px!important;transform:none}
+#npu-reserve .axis .last {right:5px;transform:none}
+#npu-reserve .axis .midnight {color:var(--accent);font-weight:670}
+#npu-reserve .group {position:sticky;left:0;background:var(--subtle);color:var(--muted);border-bottom:1px solid var(--line);padding:4px 11px;font-size:12px}
+#npu-reserve .track {position:relative;min-height:49px;touch-action:pan-x pan-y;user-select:none;background-image:linear-gradient(to right,var(--line) 1px,transparent 1px);background-size:calc(100% / 12) 100%}
+#npu-reserve .track::before {content:"";position:absolute;top:0;bottom:0;left:calc(200% / 3);border-left:1px dashed var(--accent);z-index:1;pointer-events:none}
+#npu-reserve .block {position:absolute;top:8px;bottom:8px;border-radius:4px;padding:0 4px;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;font-size:11px;font-weight:620;pointer-events:none}
+#npu-reserve .block[title] {pointer-events:auto}
+#npu-reserve .block.admin-draft {background:transparent;border:2px solid var(--accent);color:transparent}
+#npu-reserve .block.release-draft {background:transparent;border:2px solid var(--danger)}
+#npu-reserve .block.past {top:0;bottom:0;border-radius:0}
+#npu-reserve .board-note {font-size:12px;color:var(--muted);margin-top:6px}
+#npu-reserve .panel {display:grid;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:13px 14px}
+#npu-reserve .summary {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+#npu-reserve .controls {display:flex;align-items:end;gap:8px;flex-wrap:wrap}
+#npu-reserve label.field {display:grid;gap:4px;color:var(--muted);font-size:12px}
+#npu-reserve :is(select,input:not([type=checkbox])) {min-height:35px;max-width:100%;border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--ink);background:var(--surface)}
+#npu-reserve .button {border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;min-height:35px;padding:5px 10px;font-weight:620}
+#npu-reserve .button.primary {background:var(--action);border-color:var(--action);color:#fff}
+#npu-reserve .button:disabled {opacity:.55;cursor:default}
+#npu-reserve .button:not(:disabled):hover {filter:brightness(.94)}
+#npu-reserve .link-button {border:0;background:none;color:var(--accent);padding:3px 0;text-decoration:underline;text-underline-offset:3px}
+#npu-reserve .notice {padding:8px 11px;border-radius:6px;background:var(--mine);color:var(--mine-ink);font-size:13px}
+#npu-reserve .button.danger {border-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
+#npu-reserve .review {display:grid;gap:8px;padding:10px;background:var(--danger-bg);color:var(--danger);border-radius:6px}
+#npu-reserve .review ul {margin:0;padding-left:20px}
+#npu-reserve .notice.error {background:var(--danger-bg);color:var(--danger)}
+#npu-reserve .nav {display:flex;gap:6px;flex-wrap:wrap}
+#npu-reserve .admin-grid {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:13px;align-items:start}
+#npu-reserve .listing {display:grid;gap:8px}
+#npu-reserve .list-row {display:flex;justify-content:space-between;align-items:center;gap:7px;border-top:1px solid var(--line);padding-top:8px}
+#npu-reserve .list-row > div {min-width:0;overflow-wrap:anywhere}
+#npu-reserve .checks {border:0;padding:0;margin:0;min-width:0;display:grid;gap:5px}
+#npu-reserve .release-modes {display:flex;flex-wrap:wrap;gap:7px 17px}
+#npu-reserve .release-fields {display:flex;align-items:end;flex-wrap:wrap;gap:8px}
+#npu-reserve .checks legend {padding:0;margin-bottom:5px;font-weight:650}
+#npu-reserve .checks label {display:flex;gap:6px;align-items:center}
+#npu-reserve input[type=checkbox] {accent-color:var(--action)}
+#npu-reserve dialog {width:min(460px,calc(100% - 28px));max-height:calc(100% - 28px);padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);box-shadow:0 16px 48px #08132938}
+#npu-reserve dialog::backdrop {background:#09142670}
+#npu-reserve .dialog-content {display:grid;gap:12px;padding:18px}
+#npu-reserve .dialog-content ul {margin:0;padding-left:22px}
+#npu-reserve .dialog-content .controls {justify-content:flex-end}
+#npu-reserve .login {width:min(100%,365px);margin:20px auto}
+#npu-reserve .login input {width:100%}
+@media(max-width:680px) {
+  #npu-reserve {--rowhead:140px;padding:0}
+  #npu-reserve :is(.workspace,.topbar) {padding:13px}
+  #npu-reserve .admin-grid {grid-template-columns:1fr}
+}

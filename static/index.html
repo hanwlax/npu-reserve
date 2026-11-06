@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NPU 机时预约</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div id="npu-reserve" lang="zh-CN">
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h2M7 16.5h2"/></svg></span> NPU 机时预约</div>
+      <div class="identity" id="npu-identity"></div>
+    </header>
+    <main class="workspace" id="npu-workspace"><p>正在加载…</p></main>
+  </div>
+  <dialog id="npu-lock-dialog" aria-labelledby="npu-lock-title" aria-describedby="npu-lock-summary"></dialog>
+</div>
+</body>
+</html>
