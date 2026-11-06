@@ -45,12 +45,27 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now npu-reserve.service
 ```
 
-`enable --now` 同时启动服务并启用开机自启。服务异常退出后由 systemd 等待 3 秒重启。可选配置文件为 `/etc/npu-reserve.env`，每行填写一个 `KEY=value`。修改后执行 `sudo systemctl restart npu-reserve`。
+`enable --now` 同时启动服务并启用开机自启。服务异常退出后由 systemd 等待 3 秒重启。
+
+服务默认使用以下监听配置。可用 `sudoedit /etc/npu-reserve.env` 新建或编辑配置文件。
+
+```ini
+NPU_RESERVE_HOST=0.0.0.0
+NPU_RESERVE_PORT=8080
+```
+
+如需改用端口 `18080`，将对应配置改为 `NPU_RESERVE_PORT=18080`，保存后重启服务。
+
+```bash
+sudo systemctl restart npu-reserve.service
+curl -fsS -o /dev/null http://127.0.0.1:18080/
+```
+
+查看服务状态和日志。
 
 ```bash
 systemctl status npu-reserve
 journalctl -u npu-reserve -f
-sudo systemctl restart npu-reserve
 ```
 
 ## 预约规则
