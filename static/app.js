@@ -18,6 +18,7 @@
   let view = 'login';
   let user = null;
   let section = 'access';
+  let history = null;
   let lockMode = 'lock';
   let accountIndex = 0;
   let groupIndex = 0;
@@ -251,7 +252,7 @@
   }
 
   function adminNav() {
-    return '<nav class="nav" aria-label="管理菜单">'+[['access','账户与授权'],['registrations','注册审核'],['pool','机器资源池'],['groups','机器分组'],['locks','时段锁定']].map(([key,label]) =>
+    return '<nav class="nav" aria-label="管理菜单">'+[['access','账户与授权'],['registrations','注册审核'],['pool','机器资源池'],['groups','机器分组'],['locks','时段锁定'],['history','历史预约']].map(([key,label]) =>
       '<button type="button" data-section="'+key+'" aria-pressed="'+(section===key)+'">'+label+'</button>').join('')+'</nav>';
   }
 
@@ -456,13 +457,52 @@
     render();
   }
 
+  function historyPage() {
+    const format = new Intl.DateTimeFormat('zh-CN', {
+      timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    });
+    const stamp = time => format.format(time*1000);
+    const header = '<div class="intro"><div><h1>历史预约</h1>'+
+      (history?'<p class="quiet">截至 '+stamp(history.to)+' · 北京时间</p>':'')+
+      '</div>'+button('refresh-history','刷新')+'</div><div aria-live="polite">'+noticeHTML()+'</div>';
+    if (!history) return header+'<p class="quiet">正在加载预约记录…</p>';
+    if (!history.records.length) return header+'<section class="panel"><h2>没有预约记录</h2>'+
+      (history.page>1?'<div>'+button('previous-history','上一页')+'</div>':'')+'</section>';
+    const rows = history.records.map(record => '<tr><th scope="row">'+escape(record.machine)+
+      '<br><span class="quiet small">'+escape(record.ip)+(record.retired?' · 已移出资源池':'')+'</span></th><td>'+escape(record.name)+'</td>'+
+      '<td>'+stamp(record.start)+'<br>'+stamp(record.end)+'</td><td>'+
+      (record.end>history.to?'进行中':'已结束')+'</td></tr>').join('');
+    return header+'<section class="panel"><div class="history-table"><table aria-label="历史预约">'+
+      '<thead><tr><th scope="col">机器</th><th scope="col">预约人</th><th scope="col">开始与结束</th><th scope="col">状态</th></tr></thead>'+
+      '<tbody>'+rows+'</tbody></table></div><div class="summary"><span class="quiet small">第 '+history.page+' 页</span>'+
+      '<div class="controls">'+(history.page>1?button('previous-history','上一页'):'')+
+      (history.hasMore?button('next-history','下一页'):'')+'</div></div></section>';
+  }
+
+  function loadHistory(page) {
+    return run(async () => {
+      history = await request('history?page='+page);
+      notice = null;
+      render();
+    });
+  }
+
+  function userNav() {
+    return '<nav class="nav" aria-label="预约菜单">'+
+      [['access','机器预约'],['history','历史预约']].map(([key,label]) =>
+        '<button type="button" data-section="'+key+'" aria-pressed="'+(section===key)+'">'+label+'</button>'
+      ).join('')+'</nav>';
+  }
+
   function render() {
     pendingEdit = null;
     chrome();
     const publicPages = {login,registration,'registration-status':registrationStatus};
     const adminPages = {access,registrations:registrationReview,pool:resourcePool,groups:groupPage,locks:schedule};
-    const page = publicPages[view] || (view==='user' ? schedule : adminPages[section]);
-    workspace.innerHTML = page();
+    if (publicPages[view]) workspace.innerHTML = publicPages[view]();
+    else if (section==='history') workspace.innerHTML = (view==='admin'?adminNav():userNav())+historyPage();
+    else if (view==='user') workspace.innerHTML = userNav()+schedule();
+    else workspace.innerHTML = adminPages[section]();
   }
 
   function patch({board = true, form = true} = {}) {
@@ -558,6 +598,8 @@
       reset();
       render();
       if (section==='registrations') refreshRegistrations();
+      else if (section==='history') loadHistory(1);
+      else if (onBoard()) run(async () => { applyState(await request('state')); patch(); });
       return;
     }
     if (data.mode) {
@@ -605,6 +647,9 @@
       case 'show-registration': reset(); view='registration'; render(); break;
       case 'back-to-login': signedOut(); break;
       case 'refresh-registrations': refreshRegistrations(); break;
+      case 'refresh-history': loadHistory(1); break;
+      case 'previous-history': loadHistory(history.page-1); break;
+      case 'next-history': loadHistory(history.page+1); break;
       case 'cancel-release': reset(); patch(); break;
       case 'cancel-edit': clearReview(); break;
       case 'confirm-edit': pendingEdit?.commit(); break;
@@ -772,12 +817,13 @@
     user = null;
     view = 'login';
     section = 'access';
+    history = null;
     if (message) say(message,true);
     render();
   }
 
   function onBoard() {
-    return view==='user' || (view==='admin' && section==='locks');
+    return (view==='user' && section!=='history') || (view==='admin' && section==='locks');
   }
 
   async function run(action, form) {

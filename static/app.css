@@ -127,3 +127,9 @@ body {margin:0;background:light-dark(#f4f6fa,#111621)}
   #npu-reserve :is(.workspace,.topbar) {padding:13px}
   #npu-reserve .admin-grid {grid-template-columns:1fr}
 }
+
+#npu-reserve .history-table {overflow:auto}
+#npu-reserve .history-table table {border-collapse:collapse;width:100%;min-width:450px;text-align:left}
+#npu-reserve .history-table th,#npu-reserve .history-table td {padding:9px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#npu-reserve .history-table td {font-variant-numeric:tabular-nums}
+#npu-reserve .history-table tr:last-child > * {border-bottom:0}

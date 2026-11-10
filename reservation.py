@@ -20,10 +20,17 @@ SLOT = 1800
 DAY = 48 * SLOT
 BEIJING = timezone(timedelta(hours=8))
 SESSION_SECONDS = 12 * 3600
+HISTORY_PAGE_SIZE = 100
 USERNAME = re.compile(r"[a-zA-Z0-9_-]{1,24}")
 DEFAULT_ADMINS = ("zhaoming", "leixuewei")
 DPAPI_KEY_PREFIX = b"NPU-DPAPI\x01"
 PASSWORD_ACTIONS = {"create-account", "change-password", "reset-password"}
+
+VISIBLE_MACHINES_SQL = (
+    "SELECT m.id FROM machines m WHERE m.retired=0 AND "
+    "(EXISTS (SELECT 1 FROM machine_grants d WHERE d.machine_id=m.id AND d.account_id=?) "
+    "OR EXISTS (SELECT 1 FROM group_grants g WHERE g.group_id=m.group_id AND g.account_id=?))"
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -78,6 +85,7 @@ CREATE TABLE IF NOT EXISTS intervals (
 );
 CREATE INDEX IF NOT EXISTS interval_machine_time ON intervals(machine_id, start, end);
 CREATE INDEX IF NOT EXISTS interval_end ON intervals(end);
+CREATE INDEX IF NOT EXISTS interval_history ON intervals(start DESC,id DESC) WHERE kind='booked';
 CREATE TRIGGER IF NOT EXISTS interval_no_overlap
 BEFORE INSERT ON intervals WHEN EXISTS (
     SELECT 1 FROM intervals
@@ -434,9 +442,7 @@ class Store:
     def visible(db, account):
         return {
             row[0] for row in db.execute(
-                "SELECT m.id FROM machines m WHERE m.retired=0 AND "
-                "(EXISTS (SELECT 1 FROM machine_grants d WHERE d.machine_id=m.id AND d.account_id=?) "
-                "OR EXISTS (SELECT 1 FROM group_grants g WHERE g.group_id=m.group_id AND g.account_id=?))",
+                VISIBLE_MACHINES_SQL,
                 (account, account),
             )
         }
@@ -445,6 +451,25 @@ class Store:
         with self.transaction() as db:
             now = int(self.clock())
             return self.snapshot(db, self.actor(db, token, now), now)
+
+    def history(self, token, page):
+        if not 1 <= page <= 1_000_000:
+            raise Error(422, "历史页码无效。")
+        with self.transaction() as db:
+            now = int(self.clock())
+            actor = self.actor(db, token, now)
+            scope, params = "", [now]
+            if actor["role"] != "admin":
+                scope = f" AND (i.owner_id=? OR i.machine_id IN ({VISIBLE_MACHINES_SQL}))"
+                params.extend([actor["id"]] * 3)
+            rows = db.execute(
+                "SELECT i.id,i.start,i.end,m.name AS machine,m.ip,m.retired,a.name "
+                "FROM intervals i JOIN machines m ON m.id=i.machine_id JOIN accounts a ON a.id=i.owner_id "
+                "WHERE i.kind='booked' AND i.start<?" + scope + " ORDER BY i.start DESC,i.id DESC LIMIT ? OFFSET ?",
+                (*params, HISTORY_PAGE_SIZE + 1, (page - 1) * HISTORY_PAGE_SIZE),
+            ).fetchall()
+            return {"to": now, "page": page, "hasMore": len(rows) > HISTORY_PAGE_SIZE,
+                    "records": [dict(row) for row in rows[:HISTORY_PAGE_SIZE]]}
 
     def snapshot(self, db, actor, now):
         start, cutoff = clock_window(now)

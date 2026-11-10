@@ -127,6 +127,24 @@ class ReservationTests(Fixture):
         state = self.admin_action("add-machine", name="替换机", ip="192.0.2.11")
         self.assertNotEqual(state["machines"][0]["id"], self.m)
 
+    def test_history_keeps_retired_machines_and_respects_permissions(self):
+        self.book(self.alice, 0, 4)
+        self.admin_action("lock", **self.payload(4, 6, reason="历史锁定"))
+        self.now += 2 * SLOT
+        self.assertEqual(self.store.history(self.bob, 1)["records"][0]["name"], "alice")
+        self.admin_action("remove-machine", m=self.m)
+        replacement = self.admin_action("add-machine", name="复用 IP", ip="192.0.2.11")
+        self.assertNotEqual(replacement["machines"][0]["id"], self.m)
+        self.now += 8 * 24 * 3600
+        self.admin, _ = self.login("admin")
+        self.alice, _ = self.login("alice")
+        self.bob, _ = self.login("bob")
+        old, = self.store.history(self.admin, 1)["records"]
+        self.assertEqual((old["machine"], old["ip"], old["retired"]), ("a5-01", "192.0.2.11", 1))
+        self.assertEqual(old["end"] - old["start"], 2 * SLOT)
+        self.assertEqual(self.store.history(self.alice, 1)["records"], [old])
+        self.assertEqual(self.store.history(self.bob, 1)["records"], [])
+
     def test_midnight_window_and_release_cutoff(self):
         self.book(self.alice, 30, 48)
         self.now += SLOT * 33 + 1
@@ -400,6 +418,7 @@ class HTTPTests(Fixture):
         self.assertEqual(status, 200)
         self.assertIn(b"/app.js", html)
         self.assertEqual(request("/api/state")[0], 401)
+        self.assertEqual(request("/api/history")[0], 401)
         self.assertEqual(request("/api/login", {"username": "alice", "password": PASSWORD}, marker=False)[0], 403)
         cookies = []
         for username in ("alice", "bob"):
@@ -421,6 +440,11 @@ class HTTPTests(Fixture):
         self.assertEqual([r[0] for r in responses], [200, 409])
         self.assertEqual(responses[1][1]["error"], "occupied")
         self.assertEqual(len(json.loads(request("/api/state", cookie=cookies[1])[2])["records"]), 1)
+        self.now += 7 * SLOT
+        history_status, _, history_body = request("/api/history?page=1", cookie=cookies[1])
+        self.assertEqual(history_status, 200)
+        self.assertEqual(json.loads(history_body)["records"][0]["machine"], "a5-01")
+        self.assertEqual(request("/api/history?page=0", cookie=cookies[1])[0], 422)
         target = {"id": self.store.state(self.alice)["user"]["id"]}
         self.assertEqual(request("/api/view-password", target)[0], 401)
         self.assertEqual(request("/api/view-password", target, cookies[0])[0], 403)

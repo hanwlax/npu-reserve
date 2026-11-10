@@ -14,7 +14,7 @@ from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from reservation import Error, PASSWORD_ACTIONS, SESSION_SECONDS, Store
 
@@ -141,9 +141,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            path = urlsplit(self.path).path
+            url = urlsplit(self.path)
+            path = url.path
             if path == "/api/state":
                 self.json_response(200, self.server.store.state(self.session()))
+            elif path == "/api/history":
+                raw = parse_qs(url.query, keep_blank_values=True).get("page", ["1"])
+                if len(raw) != 1 or not raw[0].isascii() or not raw[0].isdigit() or len(raw[0]) > 7:
+                    raise Error(422, "历史页码无效。")
+                self.json_response(200, self.server.store.history(self.session(), int(raw[0])))
             elif path in ASSETS:
                 name, mime = ASSETS[path]
                 self.send_bytes(200, (STATIC / name).read_bytes(), mime)
